@@ -2,54 +2,65 @@ import streamlit as st
 from transformers import pipeline
 import uuid
 
+# -----------------------------
+# CONFIG
+# -----------------------------
 st.set_page_config(page_title="TalentScout Hiring Assistant")
+EXIT_KEYWORDS = {"exit", "quit", "stop", "end", "bye"}
 
+# -----------------------------
+# MODEL LOADING (OPTIMIZED)
+# -----------------------------
 @st.cache_resource
-def load_model():
+def load_llm():
     return pipeline(
         "text-generation",
         model="meta-llama/Llama-3.2-1B",
-        max_new_tokens=300,
-        temperature=0.6
+        max_new_tokens=250,
+        temperature=0.55
     )
 
-llm = load_model()
+@st.cache_resource
+def load_sentiment():
+    return pipeline("sentiment-analysis")
 
+llm = load_llm()
+sentiment_analyzer = load_sentiment()
+
+# -----------------------------
+# PROMPT (IMPROVED FOR LLaMA)
+# -----------------------------
 SYSTEM_PROMPT = """
 You are TalentScout’s Hiring Assistant.
 
-Generate 3–5 advanced technical interview questions.
-Rules:
-- Scenario-based questions only
-- No definitions or basic theory
-- Do NOT provide answers
-- Questions must match the provided tech stack
+Generate 3–5 HIGH-QUALITY technical interview questions.
 
-If unclear, respond exactly:
+STRICT RULES:
+- Questions MUST be scenario-based or failure-based
+- Focus on trade-offs, edge cases, performance, scalability
+- NO definitions
+- NO "What is" questions
+- NO answers
+- Each question must be specific to the tech stack
+
+If the tech stack is unclear, respond EXACTLY with:
 LOW_CONFIDENCE
 """
 
-st.title("🤖 TalentScout Hiring Assistant")
-
-if "session_id" not in st.session_state:
-    st.session_state.session_id = str(uuid.uuid4())
-
-st.write("Welcome! I’ll help with an initial technical screening.")
-
-experience = st.selectbox("Years of experience", ["1-3", "3-5", "5+"])
-tech = st.text_input("Enter your tech stack (comma separated)")
-
-def fallback(stack):
+# -----------------------------
+# FALLBACK QUESTIONS
+# -----------------------------
+def fallback_questions(stack):
     data = {
         "python": [
-            "How would you debug memory leaks in a Python service?",
-            "How do you handle concurrency in Python APIs?"
+            "How would you debug a memory leak in a long-running Python service?",
+            "How do you design concurrency for Python APIs under high load?"
         ],
         "sql": [
-            "How would you optimize slow production queries?"
+            "How would you investigate a production query that suddenly becomes slow?"
         ],
         "docker": [
-            "How do you reduce Docker image size without performance loss?"
+            "How would you reduce Docker image size without affecting runtime performance?"
         ]
     }
     result = []
@@ -57,22 +68,112 @@ def fallback(stack):
         result.extend(data.get(t.lower(), []))
     return result[:5]
 
-if st.button("Generate Questions"):
-    stack = [t.strip() for t in tech.split(",") if t.strip()]
+# -----------------------------
+# SESSION STATE
+# -----------------------------
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
 
-    with st.spinner("Generating technical questions..."):
+if "step" not in st.session_state:
+    st.session_state.step = 0
+
+if "candidate" not in st.session_state:
+    st.session_state.candidate = {}
+
+# -----------------------------
+# UI
+# -----------------------------
+st.title("🤖 TalentScout Hiring Assistant")
+
+st.write(
+    "Hello 👋 I’ll guide you through an initial screening and ask a few "
+    "technical questions based on your tech stack."
+)
+
+user_input = st.chat_input("Type your response here...")
+
+# -----------------------------
+# EXIT HANDLING
+# -----------------------------
+if user_input and user_input.lower().strip() in EXIT_KEYWORDS:
+    st.chat_message("assistant").write(
+        "Thank you for your time! Our recruitment team will contact you soon. 👋"
+    )
+    st.stop()
+
+# -----------------------------
+# STEP-BY-STEP SCRIPT
+# -----------------------------
+questions = [
+    "What is your full name?",
+    "What is your email address?",
+    "How many years of experience do you have?",
+    "What position are you applying for?",
+    "What is your current location?",
+    "Please list your tech stack (comma separated)"
+]
+
+if st.session_state.step < len(questions):
+    st.chat_message("assistant").write(questions[st.session_state.step])
+
+    if user_input:
+        st.session_state.candidate[questions[st.session_state.step]] = user_input
+        st.session_state.step += 1
+        st.rerun()
+
+# -----------------------------
+# TECHNICAL QUESTION GENERATION
+# -----------------------------
+elif st.session_state.step == len(questions):
+    tech_stack = [
+        t.strip() for t in
+        st.session_state.candidate[questions[-1]].split(",")
+        if t.strip()
+    ]
+
+    with st.spinner("Generating advanced technical questions..."):
         prompt = f"""
 {SYSTEM_PROMPT}
 
-Candidate Experience: {experience}
-Tech Stack: {", ".join(stack)}
+Candidate Experience: {st.session_state.candidate[questions[2]]}
+Tech Stack: {", ".join(tech_stack)}
 """
+
         output = llm(prompt)[0]["generated_text"]
 
     if output.strip() == "LOW_CONFIDENCE":
-        questions = fallback(stack)
+        tech_questions = fallback_questions(tech_stack)
     else:
-        questions = [q for q in output.split("\n") if q.strip()][:5]
+        tech_questions = [
+            q.strip()
+            for q in output.split("\n")
+            if "?" in q and len(q) > 20
+        ][:5]
 
-    for q in questions:
-        st.chat_message("assistant").markdown(f"• {q}")
+    st.session_state.tech_questions = tech_questions
+    st.session_state.q_index = 0
+    st.session_state.step += 1
+    st.rerun()
+
+# -----------------------------
+# ASK TECH QUESTIONS + SENTIMENT
+# -----------------------------
+else:
+    q_index = st.session_state.q_index
+    questions = st.session_state.tech_questions
+
+    if q_index < len(questions):
+        st.chat_message("assistant").write(questions[q_index])
+
+        if user_input:
+            sentiment = sentiment_analyzer(user_input)[0]
+            st.chat_message("assistant").write(
+                f"🧠 Detected sentiment: **{sentiment['label']}**"
+            )
+            st.session_state.q_index += 1
+            st.rerun()
+    else:
+        st.chat_message("assistant").write(
+            "Thank you for completing the screening! "
+            "Our team will review your responses and reach out soon."
+        )
