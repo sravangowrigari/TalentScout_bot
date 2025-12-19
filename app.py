@@ -9,29 +9,37 @@ st.set_page_config(page_title="TalentScout Hiring Assistant")
 EXIT_KEYWORDS = {"exit", "quit", "stop", "end", "bye"}
 
 # --------------------------------------------------
-# LOAD MODEL LOCALLY (CPU IS NORMAL)
+# LOAD BETTER MODEL LOCALLY (CPU IS NORMAL)
 # --------------------------------------------------
 @st.cache_resource
 def load_llm():
     return pipeline(
         "text2text-generation",
-        model="google/flan-t5-base",
+        model="google/flan-t5-large",
         max_new_tokens=300
     )
 
 llm = load_llm()
 
 # --------------------------------------------------
-# PROMPT
+# PROMPT (OPTIMIZED FOR flan-t5-large)
 # --------------------------------------------------
 SYSTEM_PROMPT = """
-Generate 4 technical interview questions.
+You are a senior technical interviewer.
+
+Task:
+Generate 4 high-quality technical interview questions.
 
 Rules:
-- Technical, scenario-based or problem-solving
-- Related to the given tech stack
-- No definitions, no explanations, no answers
-- Return each question on a new line
+- Questions must be scenario-based or problem-solving
+- Focus on real-world engineering challenges
+- Consider performance, scalability, failures, trade-offs
+- Related strictly to the given tech stack
+- No definitions
+- No explanations
+- No answers
+
+Return each question on a new line.
 """
 
 # --------------------------------------------------
@@ -88,22 +96,23 @@ if st.session_state.step < len(info_questions):
         st.rerun()
 
 # --------------------------------------------------
-# MODEL QUESTION GENERATION
+# MODEL QUESTION GENERATION (BETTER QUALITY)
 # --------------------------------------------------
 elif st.session_state.step == len(info_questions):
     tech_stack = st.session_state.candidate[info_questions[-1]]
 
-    with st.spinner("Generating technical questions..."):
+    with st.spinner("Generating high-quality technical questions..."):
         prompt = f"{SYSTEM_PROMPT}\nTech Stack: {tech_stack}"
         raw_output = llm(prompt)[0]["generated_text"]
 
-    # Robust, tolerant extraction (no strict formatting assumptions)
-    lines = [l.strip() for l in raw_output.split("\n")]
+    # Robust extraction (format-agnostic)
+    lines = raw_output.split("\n")
     questions = []
-    for l in lines:
-        l = l.lstrip("0123456789.-•) ").strip()
-        if len(l) >= 25:
-            questions.append(l)
+
+    for line in lines:
+        clean = line.strip().lstrip("0123456789.-•) ").strip()
+        if len(clean) >= 30:
+            questions.append(clean)
 
     if not questions:
         questions = [raw_output.strip()]
