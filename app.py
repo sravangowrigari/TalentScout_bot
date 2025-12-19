@@ -31,7 +31,10 @@ HEADERS = {
 # --------------------------------------------------
 @st.cache_resource
 def load_sentiment():
-    return pipeline("sentiment-analysis")
+    return pipeline(
+        "sentiment-analysis",
+        model="distilbert-base-uncased-finetuned-sst-2-english"
+    )
 
 sentiment_analyzer = load_sentiment()
 
