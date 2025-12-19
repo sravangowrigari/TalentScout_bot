@@ -1,53 +1,37 @@
 import streamlit as st
 import uuid
-import os
-import requests
 from transformers import pipeline
 
 # --------------------------------------------------
-# CONFIG
+# PAGE CONFIG
 # --------------------------------------------------
 st.set_page_config(page_title="TalentScout Hiring Assistant")
 
 EXIT_KEYWORDS = {"exit", "quit", "stop", "end", "bye"}
 
-HF_API_TOKEN = os.getenv("HF_API_TOKEN")
-if not HF_API_TOKEN:
-    st.error("HF_API_TOKEN not found. Add it in Streamlit Secrets.")
-    st.stop()
-
-HF_API_URL = (
-    "https://api-inference.huggingface.co/models/"
-    "google/flan-t5-base"
-)
-
-HEADERS = {
-    "Authorization": f"Bearer {HF_API_TOKEN}",
-    "Content-Type": "application/json"
-}
-
 # --------------------------------------------------
-# SENTIMENT (OPTIONAL, EXPLICIT MODEL)
+# LOAD MODEL LOCALLY (ONCE)
 # --------------------------------------------------
 @st.cache_resource
-def load_sentiment():
+def load_llm():
     return pipeline(
-        "sentiment-analysis",
-        model="distilbert-base-uncased-finetuned-sst-2-english"
+        "text2text-generation",
+        model="google/flan-t5-base",
+        max_new_tokens=200
     )
 
-sentiment_analyzer = load_sentiment()
+llm = load_llm()
 
 # --------------------------------------------------
-# PROMPT (FLAN-T5 OPTIMIZED)
+# PROMPT (FLAN-T5 FRIENDLY)
 # --------------------------------------------------
 SYSTEM_PROMPT = """
 Generate 3 to 5 advanced technical interview questions.
 
 Rules:
 - One question per line
-- Each must end with '?'
-- Scenario-based or failure-based only
+- Each question must end with '?'
+- Scenario-based or failure-based
 - Focus on scalability, performance, trade-offs, edge cases
 - No definitions
 - No explanations
@@ -102,58 +86,38 @@ if st.session_state.step < len(info_questions):
         st.rerun()
 
 # --------------------------------------------------
-# MODEL-ONLY QUESTION GENERATION (FLAN-T5)
+# MODEL QUESTION GENERATION (LOCAL, RELIABLE)
 # --------------------------------------------------
 elif st.session_state.step == len(info_questions):
     tech_stack = st.session_state.candidate[info_questions[-1]]
 
     with st.spinner("Generating technical questions..."):
-        payload = {
-            "inputs": f"{SYSTEM_PROMPT}\nTech Stack: {tech_stack}",
-            "parameters": {
-                "max_new_tokens": 200
-            }
-        }
+        prompt = f"""
+{SYSTEM_PROMPT}
+Tech Stack: {tech_stack}
+"""
+        output = llm(prompt)[0]["generated_text"]
 
-        response = requests.post(
-            HF_API_URL,
-            headers=HEADERS,
-            json=payload,
-            timeout=30
-        )
-
-    if response.status_code != 200:
-        st.error("AI model request failed. Please try again.")
-        st.stop()
-
-    data = response.json()
-
-    if not isinstance(data, list) or "generated_text" not in data[0]:
-        st.error("AI model returned invalid output.")
-        st.stop()
-
-    raw_text = data[0]["generated_text"]
-
-    model_questions = [
+    questions = [
         q.strip()
-        for q in raw_text.split("\n")
+        for q in output.split("\n")
         if q.strip().endswith("?")
     ]
 
-    if len(model_questions) < 3:
+    if len(questions) < 3:
         st.error(
             "The AI model could not generate valid interview questions. "
             "Please refine the tech stack."
         )
         st.stop()
 
-    st.session_state.tech_questions = model_questions[:5]
+    st.session_state.tech_questions = questions[:5]
     st.session_state.q_index = 0
     st.session_state.step += 1
     st.rerun()
 
 # --------------------------------------------------
-# ASK QUESTIONS + SENTIMENT
+# ASK QUESTIONS
 # --------------------------------------------------
 else:
     i = st.session_state.q_index
@@ -163,10 +127,6 @@ else:
         st.chat_message("assistant").write(qs[i])
 
         if user_input:
-            sentiment = sentiment_analyzer(user_input)[0]
-            st.chat_message("assistant").write(
-                f"🧠 Detected sentiment: **{sentiment['label']}**"
-            )
             st.session_state.q_index += 1
             st.rerun()
     else:
