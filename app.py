@@ -1,6 +1,7 @@
 import streamlit as st
 import uuid
 import os
+import time
 import requests
 from transformers import pipeline
 
@@ -27,7 +28,7 @@ HEADERS = {
 }
 
 # --------------------------------------------------
-# SENTIMENT (OPTIONAL, EXPLICIT MODEL)
+# SENTIMENT (EXPLICIT MODEL)
 # --------------------------------------------------
 @st.cache_resource
 def load_sentiment():
@@ -39,7 +40,7 @@ def load_sentiment():
 sentiment_analyzer = load_sentiment()
 
 # --------------------------------------------------
-# PROMPT (STRICT – MODEL MUST COMPLY)
+# PROMPT (STRICT)
 # --------------------------------------------------
 SYSTEM_PROMPT = """
 You are a senior technical interviewer.
@@ -54,7 +55,7 @@ MANDATORY FORMAT:
 
 CONTENT RULES:
 - Scenario-based or failure-based
-- Focus on performance, scalability, trade-offs, edge cases
+- Focus on scalability, performance, trade-offs, edge cases
 - No definitions
 - No explanations
 - No answers
@@ -108,50 +109,52 @@ if st.session_state.step < len(info_questions):
         st.rerun()
 
 # --------------------------------------------------
-# MODEL-ONLY QUESTION GENERATION
+# MODEL-ONLY QUESTION GENERATION (WITH RETRY)
 # --------------------------------------------------
 elif st.session_state.step == len(info_questions):
     tech_stack = st.session_state.candidate[info_questions[-1]]
 
-    with st.spinner("Generating technical questions using AI..."):
-        payload = {
-            "inputs": (
-                f"{SYSTEM_PROMPT}\n"
-                f"Tech Stack: {tech_stack}\n"
-                f"IMPORTANT: Follow the format strictly."
-            ),
-            "parameters": {
-                "max_new_tokens": 250,
-                "temperature": 0.4,
-                "return_full_text": False
-            }
+    payload = {
+        "inputs": (
+            f"{SYSTEM_PROMPT}\n"
+            f"Tech Stack: {tech_stack}\n"
+            f"IMPORTANT: Follow the format strictly."
+        ),
+        "parameters": {
+            "max_new_tokens": 300,
+            "temperature": 0.4,
+            "return_full_text": False
         }
+    }
 
-        try:
+    max_retries = 5
+    wait_seconds = 10
+    raw_text = None
+
+    with st.spinner("Warming up AI model and generating questions..."):
+        for attempt in range(max_retries):
             response = requests.post(
                 HF_API_URL,
                 headers=HEADERS,
                 json=payload,
                 timeout=60
             )
-        except Exception as e:
-            st.error("Model request failed.")
-            st.stop()
 
-    if response.status_code != 200:
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list) and "generated_text" in data[0]:
+                    raw_text = data[0]["generated_text"]
+                    if raw_text.strip():
+                        break
+
+            time.sleep(wait_seconds)
+
+    if not raw_text:
         st.error(
-            "The AI model is currently unavailable or still loading. "
-            "Please try again in a few seconds."
+            "The AI model did not become ready in time. "
+            "Please try again in a minute."
         )
         st.stop()
-
-    data = response.json()
-
-    if not isinstance(data, list) or "generated_text" not in data[0]:
-        st.error("The AI model did not return valid output.")
-        st.stop()
-
-    raw_text = data[0]["generated_text"]
 
     model_questions = [
         q.strip()
@@ -161,8 +164,8 @@ elif st.session_state.step == len(info_questions):
 
     if len(model_questions) < 3:
         st.error(
-            "The AI model could not generate valid interview questions. "
-            "Please try again or refine the tech stack."
+            "The AI model responded, but did not generate valid interview questions. "
+            "Please refine the tech stack and try again."
         )
         st.stop()
 
@@ -172,7 +175,7 @@ elif st.session_state.step == len(info_questions):
     st.rerun()
 
 # --------------------------------------------------
-# ASK TECH QUESTIONS + SENTIMENT
+# ASK QUESTIONS + SENTIMENT
 # --------------------------------------------------
 else:
     i = st.session_state.q_index
