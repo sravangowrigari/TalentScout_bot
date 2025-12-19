@@ -15,9 +15,9 @@ EXIT_KEYWORDS = {"exit", "quit", "stop", "end", "bye"}
 def load_llm():
     return pipeline(
         "text-generation",
-        model="meta-llama/Llama-3.2-1B",
-        max_new_tokens=250,
-        temperature=0.55
+        model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        max_new_tokens=200,
+        temperature=0.5
     )
 
 @st.cache_resource
@@ -132,14 +132,18 @@ elif st.session_state.step == len(questions):
     ]
 
     with st.spinner("Generating advanced technical questions..."):
+        try:
+            output = llm(prompt, return_full_text=False)[0]["generated_text"]
+        except Exception as e:
+            st.error("Model failed to generate questions. Using fallback.")
+            output = "LOW_CONFIDENCE" 
         prompt = f"""
 {SYSTEM_PROMPT}
 
 Candidate Experience: {st.session_state.candidate[questions[2]]}
 Tech Stack: {", ".join(tech_stack)}
 """
-
-        output = llm(prompt)[0]["generated_text"]
+            
 
     if output.strip() == "LOW_CONFIDENCE":
         tech_questions = fallback_questions(tech_stack)
