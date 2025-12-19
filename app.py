@@ -3,7 +3,7 @@ from groq import Groq
 
 # --- CONFIGURATION ---
 # It's best practice to use st.secrets for keys, but for local testing:
-GROQ_API_KEY = "your_groq_api_key_here"
+GROQ_API_KEY = "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"
 client = Groq(api_key=GROQ_API_KEY)
 
 # --- SYSTEM DESIGN ---
