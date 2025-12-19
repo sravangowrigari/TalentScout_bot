@@ -9,37 +9,43 @@ st.set_page_config(page_title="TalentScout Hiring Assistant")
 EXIT_KEYWORDS = {"exit", "quit", "stop", "end", "bye"}
 
 # --------------------------------------------------
-# LOAD BETTER MODEL LOCALLY (CPU IS NORMAL)
+# LOAD MODEL (BETTER QUALITY)
 # --------------------------------------------------
 @st.cache_resource
 def load_llm():
     return pipeline(
         "text2text-generation",
         model="google/flan-t5-large",
-        max_new_tokens=300
+        max_new_tokens=512,
+        do_sample=False,          # deterministic
+        num_beams=4               # forces multi-question output
     )
 
 llm = load_llm()
 
 # --------------------------------------------------
-# PROMPT (OPTIMIZED FOR flan-t5-large)
+# STRONG TECH-STACK AWARE PROMPT
 # --------------------------------------------------
 SYSTEM_PROMPT = """
 You are a senior technical interviewer.
 
-Task:
-Generate 4 high-quality technical interview questions.
+TASK:
+Generate 5 advanced technical interview questions.
 
-Rules:
+STRICT REQUIREMENTS:
+- Each question MUST explicitly reference at least one item from the tech stack
 - Questions must be scenario-based or problem-solving
-- Focus on real-world engineering challenges
-- Consider performance, scalability, failures, trade-offs
-- Related strictly to the given tech stack
-- No definitions
-- No explanations
-- No answers
+- Focus on real-world issues: performance, scalability, failures, trade-offs
+- NO definitions
+- NO theoretical explanations
+- NO answers
 
-Return each question on a new line.
+FORMAT (MANDATORY):
+Q1: <question>
+Q2: <question>
+Q3: <question>
+Q4: <question>
+Q5: <question>
 """
 
 # --------------------------------------------------
@@ -81,7 +87,7 @@ info_questions = [
     "What is your email address?",
     "How many years of experience do you have?",
     "What position are you applying for?",
-    "Please list your tech stack (comma separated)"
+    "Please list your tech stack (comma separated, e.g., Python, SQL, Docker)"
 ]
 
 if st.session_state.step < len(info_questions):
@@ -96,28 +102,48 @@ if st.session_state.step < len(info_questions):
         st.rerun()
 
 # --------------------------------------------------
-# MODEL QUESTION GENERATION (BETTER QUALITY)
+# TECH-STACK-SPECIFIC QUESTION GENERATION
 # --------------------------------------------------
 elif st.session_state.step == len(info_questions):
-    tech_stack = st.session_state.candidate[info_questions[-1]]
+    tech_stack_raw = st.session_state.candidate[info_questions[-1]]
+    tech_stack = [t.strip() for t in tech_stack_raw.split(",") if t.strip()]
+    experience = st.session_state.candidate[info_questions[2]]
 
-    with st.spinner("Generating high-quality technical questions..."):
-        prompt = f"{SYSTEM_PROMPT}\nTech Stack: {tech_stack}"
-        raw_output = llm(prompt)[0]["generated_text"]
+    with st.spinner("Generating advanced, tech-specific questions..."):
+        prompt = f"""
+{SYSTEM_PROMPT}
 
-    # Robust extraction (format-agnostic)
-    lines = raw_output.split("\n")
+Candidate Experience: {experience} years
+Tech Stack: {", ".join(tech_stack)}
+
+IMPORTANT:
+- Each question must clearly mention a technology from the stack
+- Use real engineering scenarios
+"""
+        output = llm(prompt)[0]["generated_text"]
+
+    # -------------------------------
+    # ROBUST EXTRACTION (Q1–Q5)
+    # -------------------------------
     questions = []
+    for line in output.split("\n"):
+        line = line.strip()
+        if line.startswith("Q"):
+            clean = line.split(":", 1)[-1].strip()
+            if len(clean) > 40:
+                questions.append(clean)
 
-    for line in lines:
-        clean = line.strip().lstrip("0123456789.-•) ").strip()
-        if len(clean) >= 30:
-            questions.append(clean)
+    # Safety net: keep only meaningful questions
+    questions = questions[:5]
 
-    if not questions:
-        questions = [raw_output.strip()]
+    if len(questions) < 3:
+        st.error(
+            "The AI response was not detailed enough. "
+            "Please provide a clearer tech stack (e.g., Python, SQL, Docker, AWS)."
+        )
+        st.stop()
 
-    st.session_state.tech_questions = questions[:4]
+    st.session_state.tech_questions = questions
     st.session_state.q_index = 0
     st.session_state.step += 1
     st.rerun()
