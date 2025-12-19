@@ -34,7 +34,7 @@ if "messages" not in st.session_state:
 
 # --- UI SETUP ---
 st.set_page_config(page_title="TalentScout Assistant", page_icon="💼", layout="centered")
-st.title("🚀 TalentScout Interactive Hiring")
+st.title("🚀 TalentScout Hiring Assistant Chatbot")
 
 # Progress Bar for User Info
 progress_value = min(st.session_state.info_step / len(REQUIRED_INFO), 1.0)
