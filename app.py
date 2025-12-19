@@ -10,14 +10,14 @@ st.set_page_config(page_title="TalentScout Hiring Assistant")
 EXIT_KEYWORDS = {"exit", "quit", "stop", "end", "bye"}
 
 # --------------------------------------------------
-# MODEL LOADING (OPTIMIZED & CLOUD-SAFE)
+# MODEL LOADING (OPTIMIZED & CLOUD SAFE)
 # --------------------------------------------------
 @st.cache_resource
 def load_llm():
     return pipeline(
         "text-generation",
         model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-        max_new_tokens=200,
+        max_new_tokens=220,
         temperature=0.5
     )
 
@@ -31,32 +31,31 @@ llm = load_llm()
 sentiment_analyzer = load_sentiment()
 
 # --------------------------------------------------
-# STRONG PROMPT (FIXED FOR SMALL LLMS)
+# PROMPT (TUNED FOR SMALL LLMS)
 # --------------------------------------------------
 SYSTEM_PROMPT = """
-You are a senior technical interviewer.
+Generate interview questions ONLY.
 
-Generate exactly 3 to 5 technical interview questions.
+OUTPUT FORMAT (MANDATORY):
+- Output ONLY questions
+- One question per line
+- Each question MUST end with '?'
+- Do NOT add any extra text
 
-FORMAT RULES:
-- Each question must be on a new line
-- Each question must end with a '?'
-- No introductions
-- No explanations
-- No answers
-
-CONTENT RULES:
-- Scenario-based or failure-based questions only
-- Focus on trade-offs, scalability, performance, edge cases
+QUESTION RULES:
+- Generate 3 to 5 questions
+- Scenario-based or failure-based
+- Focus on performance, scalability, trade-offs, edge cases
 - No definitions
 - No "What is" questions
+- No answers
 
-If the tech stack is unclear, respond exactly:
+If you cannot generate valid questions, output exactly:
 LOW_CONFIDENCE
 """
 
 # --------------------------------------------------
-# FALLBACK QUESTIONS (GUARANTEED OUTPUT)
+# FALLBACK QUESTIONS (HIGH QUALITY)
 # --------------------------------------------------
 def fallback_questions(stack):
     data = {
@@ -110,7 +109,7 @@ if user_input and user_input.lower().strip() in EXIT_KEYWORDS:
     st.stop()
 
 # --------------------------------------------------
-# STEP-BY-STEP CANDIDATE INFO SCRIPT
+# STEP-BY-STEP CANDIDATE INFO COLLECTION
 # --------------------------------------------------
 info_questions = [
     "What is your full name?",
@@ -132,7 +131,7 @@ if st.session_state.step < len(info_questions):
         st.rerun()
 
 # --------------------------------------------------
-# TECHNICAL QUESTION GENERATION
+# TECHNICAL QUESTION GENERATION (HYBRID MODE)
 # --------------------------------------------------
 elif st.session_state.step == len(info_questions):
     tech_stack = [
@@ -155,13 +154,17 @@ Tech Stack: {", ".join(tech_stack)}
         except Exception:
             output = "LOW_CONFIDENCE"
 
-    # 🔍 Robust parsing (FIXED)
+    # ---- Robust parsing ----
     lines = [l.strip() for l in output.split("\n") if l.strip()]
     tech_questions = [l for l in lines if "?" in l]
 
-    # Guaranteed fallback
+    # ---- HYBRID FALLBACK (BEST PRACTICE) ----
     if len(tech_questions) < 3:
-        tech_questions = fallback_questions(tech_stack)
+        tech_questions.extend(
+            fallback_questions(tech_stack)
+        )
+
+    tech_questions = tech_questions[:5]
 
     st.session_state.tech_questions = tech_questions
     st.session_state.q_index = 0
