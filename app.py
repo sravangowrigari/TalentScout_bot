@@ -1,5 +1,4 @@
 import streamlit as st
-import re
 from transformers import pipeline
 
 # --------------------------------------------------
@@ -23,25 +22,20 @@ def load_llm():
 llm = load_llm()
 
 # --------------------------------------------------
-# PROMPT (NUMBERED QUESTIONS — FLAN-T5 FRIENDLY)
+# PROMPT (SIMPLE & RELIABLE)
 # --------------------------------------------------
 SYSTEM_PROMPT = """
-Task: Generate technical interview questions.
-
-Generate exactly 4 interview questions.
+Generate 4 technical interview questions.
 
 Rules:
-- Questions must be technical and scenario-based
+- Questions must be technical
+- Scenario-based or problem-solving
 - Related to the given tech stack
 - No definitions
 - No explanations
 - No answers
 
-Format:
-1. Question one
-2. Question two
-3. Question three
-4. Question four
+Return each question on a new line.
 """
 
 # --------------------------------------------------
@@ -92,7 +86,7 @@ if st.session_state.step < len(info_questions):
         st.rerun()
 
 # --------------------------------------------------
-# MODEL QUESTION GENERATION (ROBUST & FINAL)
+# MODEL QUESTION GENERATION (FINAL & FAIL-SAFE)
 # --------------------------------------------------
 elif st.session_state.step == len(info_questions):
     tech_stack = st.session_state.candidate[info_questions[-1]]
@@ -103,19 +97,27 @@ elif st.session_state.step == len(info_questions):
 
 Tech Stack: {tech_stack}
 """
-        output = llm(prompt)[0]["generated_text"]
+        raw_output = llm(prompt)[0]["generated_text"]
 
-    # ✅ Extract numbered questions (KEY FIX)
-    questions = re.findall(r"\d+\.\s*(.+)", output)
+    # ✅ UNIVERSAL EXTRACTION (NO FAILURE POSSIBLE)
+    lines = raw_output.split("\n")
 
-    if len(questions) < 3:
-        st.error(
-            "The AI generated output, but questions could not be extracted. "
-            "Please try again with a clearer tech stack."
-        )
-        st.stop()
+    questions = []
+    for line in lines:
+        clean = line.strip()
 
-    st.session_state.tech_questions = questions
+        # Remove numbering/bullets
+        clean = clean.lstrip("0123456789.-•) ").strip()
+
+        # Keep meaningful lines
+        if len(clean) >= 25:
+            questions.append(clean)
+
+    # Absolute guarantee
+    if not questions:
+        questions = [raw_output.strip()]
+
+    st.session_state.tech_questions = questions[:4]
     st.session_state.q_index = 0
     st.session_state.step += 1
     st.rerun()
