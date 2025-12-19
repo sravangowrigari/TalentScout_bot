@@ -26,16 +26,19 @@ llm = load_llm()
 # PROMPT (FLAN-T5 FRIENDLY)
 # --------------------------------------------------
 SYSTEM_PROMPT = """
-Generate 3 to 5 advanced technical interview questions.
+Task: Generate interview questions.
 
-Rules:
-- One question per line
-- Each question must end with '?'
-- Scenario-based or failure-based
-- Focus on scalability, performance, trade-offs, edge cases
-- No definitions
-- No explanations
-- No answers
+Generate 4 technical interview questions.
+
+Guidelines:
+- Questions must be technical
+- Scenario-based or problem-solving
+- Related to the given tech stack
+- Each question must end with a question mark
+
+Format:
+Return each question on a new line.
+Do not include explanations or answers.
 """
 
 # --------------------------------------------------
