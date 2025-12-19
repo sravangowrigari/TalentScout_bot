@@ -1,72 +1,53 @@
 import streamlit as st
-from transformers import pipeline
 import uuid
+import os
+import google.generativeai as genai
+from transformers import pipeline
 
 # --------------------------------------------------
-# PAGE CONFIG
+# CONFIG
 # --------------------------------------------------
 st.set_page_config(page_title="TalentScout Hiring Assistant")
-
 EXIT_KEYWORDS = {"exit", "quit", "stop", "end", "bye"}
 
 # --------------------------------------------------
-# MODEL LOADING (OPTIMIZED & CLOUD SAFE)
+# GEMINI SETUP
 # --------------------------------------------------
-@st.cache_resource
-def load_llm():
-    return pipeline(
-        "text-generation",
-        model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-        max_new_tokens=220,
-        temperature=0.5
-    )
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+model = genai.GenerativeModel("gemini-1.5-flash")
 
+# --------------------------------------------------
+# SENTIMENT (LIGHTWEIGHT)
+# --------------------------------------------------
 @st.cache_resource
 def load_sentiment():
     return pipeline("sentiment-analysis")
 
-if "models_loaded" not in st.session_state:
-    loading_placeholder = st.empty()
-    loading_placeholder.info(
-        "⏳ Loading AI models (first load may take ~30 seconds)..."
-    )
-
-    llm = load_llm()
-    sentiment_analyzer = load_sentiment()
-
-    loading_placeholder.empty()
-    st.session_state.models_loaded = True
-else:
-    llm = load_llm()
-    sentiment_analyzer = load_sentiment()
-
+sentiment_analyzer = load_sentiment()
 
 # --------------------------------------------------
-# PROMPT (TUNED FOR SMALL LLMS)
+# PROMPT (GEMINI-OPTIMIZED)
 # --------------------------------------------------
 SYSTEM_PROMPT = """
-Generate interview questions ONLY.
+You are TalentScout’s Hiring Assistant.
 
-OUTPUT FORMAT (MANDATORY):
-- Output ONLY questions
-- One question per line
-- Each question MUST end with '?'
-- Do NOT add any extra text
+Generate 3 to 5 advanced technical interview questions.
 
-QUESTION RULES:
-- Generate 3 to 5 questions
-- Scenario-based or failure-based
+STRICT RULES:
+- Each question must be on a new line
+- Each question must end with '?'
+- Scenario-based or failure-based only
 - Focus on performance, scalability, trade-offs, edge cases
 - No definitions
-- No "What is" questions
 - No answers
+- No introductory text
 
-If you cannot generate valid questions, output exactly:
+If tech stack is unclear, respond exactly:
 LOW_CONFIDENCE
 """
 
 # --------------------------------------------------
-# FALLBACK QUESTIONS (HIGH QUALITY)
+# FALLBACK QUESTIONS
 # --------------------------------------------------
 def fallback_questions(stack):
     data = {
@@ -99,10 +80,9 @@ if "candidate" not in st.session_state:
     st.session_state.candidate = {}
 
 # --------------------------------------------------
-# UI HEADER
+# UI
 # --------------------------------------------------
 st.title("🤖 TalentScout Hiring Assistant")
-
 st.write(
     "Hello 👋 I’ll guide you through an initial screening and ask a few "
     "technical questions based on your tech stack."
@@ -120,7 +100,7 @@ if user_input and user_input.lower().strip() in EXIT_KEYWORDS:
     st.stop()
 
 # --------------------------------------------------
-# STEP-BY-STEP CANDIDATE INFO COLLECTION
+# STEP-BY-STEP INFO COLLECTION
 # --------------------------------------------------
 info_questions = [
     "What is your full name?",
@@ -142,7 +122,7 @@ if st.session_state.step < len(info_questions):
         st.rerun()
 
 # --------------------------------------------------
-# TECHNICAL QUESTION GENERATION (HYBRID MODE)
+# TECH QUESTION GENERATION (GEMINI)
 # --------------------------------------------------
 elif st.session_state.step == len(info_questions):
     tech_stack = [
@@ -160,37 +140,28 @@ elif st.session_state.step == len(info_questions):
 Candidate Experience: {st.session_state.candidate[info_questions[2]]}
 Tech Stack: {", ".join(tech_stack)}
 """
-        try:
-            output = llm(prompt, return_full_text=False)[0]["generated_text"]
-        except Exception:
-            output = "LOW_CONFIDENCE"
+        response = model.generate_content(prompt)
+        output = response.text.strip()
 
-    # ---- Robust parsing ----
-    lines = [l.strip() for l in output.split("\n") if l.strip()]
-    tech_questions = [l for l in lines if "?" in l]
+    lines = [l.strip() for l in output.split("\n") if "?" in l]
 
-    # ---- HYBRID FALLBACK (BEST PRACTICE) ----
-    if len(tech_questions) < 3:
-        tech_questions.extend(
-            fallback_questions(tech_stack)
-        )
+    if len(lines) < 3:
+        lines.extend(fallback_questions(tech_stack))
 
-    tech_questions = tech_questions[:5]
-
-    st.session_state.tech_questions = tech_questions
+    st.session_state.tech_questions = lines[:5]
     st.session_state.q_index = 0
     st.session_state.step += 1
     st.rerun()
 
 # --------------------------------------------------
-# ASK TECH QUESTIONS + SENTIMENT ANALYSIS
+# ASK QUESTIONS + SENTIMENT
 # --------------------------------------------------
 else:
     q_index = st.session_state.q_index
-    tech_questions = st.session_state.tech_questions
+    questions = st.session_state.tech_questions
 
-    if q_index < len(tech_questions):
-        st.chat_message("assistant").write(tech_questions[q_index])
+    if q_index < len(questions):
+        st.chat_message("assistant").write(questions[q_index])
 
         if user_input:
             sentiment = sentiment_analyzer(user_input)[0]
