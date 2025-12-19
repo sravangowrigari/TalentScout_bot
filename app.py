@@ -27,7 +27,7 @@ HEADERS = {
 }
 
 # --------------------------------------------------
-# SENTIMENT MODEL (EXPLICIT)
+# SENTIMENT (OPTIONAL, EXPLICIT MODEL)
 # --------------------------------------------------
 @st.cache_resource
 def load_sentiment():
@@ -39,35 +39,26 @@ def load_sentiment():
 sentiment_analyzer = load_sentiment()
 
 # --------------------------------------------------
-# PROMPT (MODEL-FRIENDLY)
+# PROMPT (STRICT – MODEL MUST COMPLY)
 # --------------------------------------------------
 SYSTEM_PROMPT = """
 You are a senior technical interviewer.
 
-Generate technical interview questions ONLY.
+Generate ONLY technical interview questions.
 
-Rules:
+MANDATORY FORMAT:
 - Generate 3 to 5 questions
 - One question per line
 - Each question must end with '?'
+- Output ONLY the questions
+
+CONTENT RULES:
 - Scenario-based or failure-based
-- Focus on scalability, performance, trade-offs, edge cases
+- Focus on performance, scalability, trade-offs, edge cases
 - No definitions
 - No explanations
 - No answers
 """
-
-# --------------------------------------------------
-# FALLBACK QUESTIONS (HIGH QUALITY)
-# --------------------------------------------------
-def fallback_questions():
-    return [
-        "How would you debug a memory leak in a long-running production service?",
-        "How do you design systems to handle sudden traffic spikes?",
-        "How do you identify and resolve performance bottlenecks in production?",
-        "How do you handle failures and retries in distributed systems?",
-        "How would you design monitoring and alerting for a critical service?"
-    ]
 
 # --------------------------------------------------
 # SESSION STATE
@@ -117,17 +108,17 @@ if st.session_state.step < len(info_questions):
         st.rerun()
 
 # --------------------------------------------------
-# QUESTION GENERATION (HF + HYBRID FALLBACK)
+# MODEL-ONLY QUESTION GENERATION
 # --------------------------------------------------
 elif st.session_state.step == len(info_questions):
     tech_stack = st.session_state.candidate[info_questions[-1]]
 
-    with st.spinner("Generating technical questions..."):
+    with st.spinner("Generating technical questions using AI..."):
         payload = {
             "inputs": (
                 f"{SYSTEM_PROMPT}\n"
                 f"Tech Stack: {tech_stack}\n"
-                f"IMPORTANT: Output ONLY questions, one per line, ending with '?'"
+                f"IMPORTANT: Follow the format strictly."
             ),
             "parameters": {
                 "max_new_tokens": 250,
@@ -143,41 +134,45 @@ elif st.session_state.step == len(info_questions):
                 json=payload,
                 timeout=60
             )
-        except Exception:
-            response = None
+        except Exception as e:
+            st.error("Model request failed.")
+            st.stop()
 
-    model_questions = []
+    if response.status_code != 200:
+        st.error(
+            "The AI model is currently unavailable or still loading. "
+            "Please try again in a few seconds."
+        )
+        st.stop()
 
-    if response and response.status_code == 200:
-        data = response.json()
+    data = response.json()
 
-        # HF can return multiple formats
-        if isinstance(data, list) and "generated_text" in data[0]:
-            raw_text = data[0]["generated_text"]
-        else:
-            raw_text = ""
+    if not isinstance(data, list) or "generated_text" not in data[0]:
+        st.error("The AI model did not return valid output.")
+        st.stop()
 
-        model_questions = [
-            q.strip()
-            for q in raw_text.split("\n")
-            if "?" in q
-        ]
+    raw_text = data[0]["generated_text"]
 
-    # ---------------- HYBRID MODE ----------------
-    final_questions = model_questions.copy()
+    model_questions = [
+        q.strip()
+        for q in raw_text.split("\n")
+        if q.strip().endswith("?")
+    ]
 
-    if len(final_questions) < 5:
-        final_questions.extend(fallback_questions())
+    if len(model_questions) < 3:
+        st.error(
+            "The AI model could not generate valid interview questions. "
+            "Please try again or refine the tech stack."
+        )
+        st.stop()
 
-    final_questions = final_questions[:5]
-
-    st.session_state.tech_questions = final_questions
+    st.session_state.tech_questions = model_questions[:5]
     st.session_state.q_index = 0
     st.session_state.step += 1
     st.rerun()
 
 # --------------------------------------------------
-# ASK QUESTIONS + SENTIMENT
+# ASK TECH QUESTIONS + SENTIMENT
 # --------------------------------------------------
 else:
     i = st.session_state.q_index
