@@ -1,22 +1,29 @@
-# TalentScout Hiring Assistant 🤖
+# TalentScout: AI Hiring Assistant 🤖
 
-TalentScout is an intelligent recruitment chatbot designed to streamline the initial screening process. It gathers candidate information and generates tailored technical questions based on the candidate's tech stack.
+## I. Project Overview
+TalentScout is an intelligent recruitment chatbot built with Python and Streamlit. It leverages the Llama 3.3 Large Language Model (via Groq Cloud) to automate the initial screening of technology candidates. The assistant gathers essential PII (Personally Identifiable Information), generates dynamic technical questions based on the candidate's specific tech stack, and provides a structured Excel report for recruiters.
 
-## ✨ Features
-- **Sequential Information Gathering**: Collects name, contact info, and experience step-by-step.
-- **Dynamic Technical Screening**: Generates 3-5 specific questions using Llama 3 based on the candidate's stack.
-- **Secure Integration**: Uses Streamlit Secrets to manage API keys safely.
+## II. Technical Specifications
+- **Frontend:** Streamlit (v1.30+)
+- **LLM Provider:** Groq Cloud API
+- **Model:** Llama-3.3-70b-versatile
+- **Data Handling:** Pandas & XlsxWriter
+- **Security:** Streamlit Secrets Management
 
-## 🚀 Installation & Local Setup
-1. Clone this repository: `git clone <your-repo-link>`
-2. Install dependencies: `pip install -r requirements.txt`
-3. Set up your API key: 
-   - Create a folder `.streamlit`
-   - Create a file `secrets.toml` inside it
-   - Add: `GROQ_API_KEY = "your_key_here"`
-4. Run the app: `streamlit run app.py`
+## III. Prompt Engineering Design
+The chatbot utilizes a multi-phase prompting strategy:
+1. **System Persona:** Defines the bot as a professional recruiter, ensuring it stays on-topic and handles fallbacks gracefully.
+2. **Dynamic Generation:** Once the 'Tech Stack' is identified, a specific prompt instructs the LLM to generate exactly 5 technical questions, filtering out introductory text to maintain a clean UI.
+3. **Sequential State Management:** Using Streamlit's `session_state`, the bot tracks `info_step` and `tech_step` to ensure a one-question-at-a-time interaction.
 
-## 🛠️ Tech Stack
-- **Frontend**: Streamlit
-- **LLM**: Llama 3.3 (via Groq Cloud)
-- **Language**: Python
+## IV. Installation & Usage
+1. **Clone:** `git clone <repository-url>`
+2. **Install:** `pip install -r requirements.txt`
+3. **Configure:** Create `.streamlit/secrets.toml` and add `GROQ_API_KEY = "your_key"`.
+4. **Run:** `streamlit run app.py`
+
+## V. Challenges & Solutions
+- **Challenge:** Statelessness of LLMs. 
+- **Solution:** Implemented a state machine using `st.session_state` to store candidate answers and track progress.
+- **Challenge:** Data Export. 
+- **Solution:** Integrated `BytesIO` with `pandas` to allow real-time generation of Excel files without saving local temporary files.
