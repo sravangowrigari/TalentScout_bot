@@ -1,12 +1,3 @@
-# Byte-compiled files
-__pycache__/
-*.py[cod]
-
-# Environments
 .env
-.venv
-env/
-venv/
-
-# Streamlit local secrets (if used)
-.streamlit/secrets.toml
+.streamlit/
+__pycache__/
