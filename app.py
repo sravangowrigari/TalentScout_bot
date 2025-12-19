@@ -23,22 +23,25 @@ def load_llm():
 llm = load_llm()
 
 # --------------------------------------------------
-# PROMPT (FLAN-T5 OPTIMIZED)
+# PROMPT (NUMBERED QUESTIONS — FLAN-T5 FRIENDLY)
 # --------------------------------------------------
 SYSTEM_PROMPT = """
-Task: Generate interview questions.
+Task: Generate technical interview questions.
 
-Generate 4 technical interview questions.
+Generate exactly 4 interview questions.
 
-Guidelines:
-- Questions must be technical
-- Scenario-based or problem-solving
+Rules:
+- Questions must be technical and scenario-based
 - Related to the given tech stack
-- Each question must end with a question mark
+- No definitions
+- No explanations
+- No answers
 
 Format:
-Return each question on a new line.
-Do not include explanations or answers.
+1. Question one
+2. Question two
+3. Question three
+4. Question four
 """
 
 # --------------------------------------------------
@@ -89,7 +92,7 @@ if st.session_state.step < len(info_questions):
         st.rerun()
 
 # --------------------------------------------------
-# MODEL QUESTION GENERATION (ROBUST)
+# MODEL QUESTION GENERATION (ROBUST & FINAL)
 # --------------------------------------------------
 elif st.session_state.step == len(info_questions):
     tech_stack = st.session_state.candidate[info_questions[-1]]
@@ -102,18 +105,17 @@ Tech Stack: {tech_stack}
 """
         output = llm(prompt)[0]["generated_text"]
 
-    # Robust question extraction (FIX)
-    questions = re.findall(r"[^?.!]*\?", output)
-    questions = [q.strip() for q in questions]
+    # ✅ Extract numbered questions (KEY FIX)
+    questions = re.findall(r"\d+\.\s*(.+)", output)
 
     if len(questions) < 3:
         st.error(
-            "The AI responded, but could not format usable interview questions. "
-            "Please try a clearer tech stack (e.g., Python, SQL, Docker)."
+            "The AI generated output, but questions could not be extracted. "
+            "Please try again with a clearer tech stack."
         )
         st.stop()
 
-    st.session_state.tech_questions = questions[:5]
+    st.session_state.tech_questions = questions
     st.session_state.q_index = 0
     st.session_state.step += 1
     st.rerun()
