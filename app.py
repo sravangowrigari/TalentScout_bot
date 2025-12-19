@@ -1,5 +1,5 @@
 import streamlit as st
-import uuid
+import re
 from transformers import pipeline
 
 # --------------------------------------------------
@@ -10,20 +10,20 @@ st.set_page_config(page_title="TalentScout Hiring Assistant")
 EXIT_KEYWORDS = {"exit", "quit", "stop", "end", "bye"}
 
 # --------------------------------------------------
-# LOAD MODEL LOCALLY (ONCE)
+# LOAD MODEL LOCALLY (CPU IS NORMAL)
 # --------------------------------------------------
 @st.cache_resource
 def load_llm():
     return pipeline(
         "text2text-generation",
         model="google/flan-t5-base",
-        max_new_tokens=200
+        max_new_tokens=300
     )
 
 llm = load_llm()
 
 # --------------------------------------------------
-# PROMPT (FLAN-T5 FRIENDLY)
+# PROMPT (FLAN-T5 OPTIMIZED)
 # --------------------------------------------------
 SYSTEM_PROMPT = """
 Task: Generate interview questions.
@@ -89,7 +89,7 @@ if st.session_state.step < len(info_questions):
         st.rerun()
 
 # --------------------------------------------------
-# MODEL QUESTION GENERATION (LOCAL, RELIABLE)
+# MODEL QUESTION GENERATION (ROBUST)
 # --------------------------------------------------
 elif st.session_state.step == len(info_questions):
     tech_stack = st.session_state.candidate[info_questions[-1]]
@@ -97,20 +97,19 @@ elif st.session_state.step == len(info_questions):
     with st.spinner("Generating technical questions..."):
         prompt = f"""
 {SYSTEM_PROMPT}
+
 Tech Stack: {tech_stack}
 """
         output = llm(prompt)[0]["generated_text"]
 
-    questions = [
-        q.strip()
-        for q in output.split("\n")
-        if q.strip().endswith("?")
-    ]
+    # Robust question extraction (FIX)
+    questions = re.findall(r"[^?.!]*\?", output)
+    questions = [q.strip() for q in questions]
 
     if len(questions) < 3:
         st.error(
-            "The AI model could not generate valid interview questions. "
-            "Please refine the tech stack."
+            "The AI responded, but could not format usable interview questions. "
+            "Please try a clearer tech stack (e.g., Python, SQL, Docker)."
         )
         st.stop()
 
