@@ -2,85 +2,76 @@ import streamlit as st
 from groq import Groq
 
 # --- SECURE CONFIGURATION ---
-# On Streamlit Cloud, this pulls from the "Secrets" dashboard
-# Locally, you can set this up in a .streamlit/secrets.toml file
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 except Exception:
     st.error("API Key not found. Please set GROQ_API_KEY in Streamlit Secrets.")
     st.stop()
 
-# --- RECRUITMENT LOGIC ---
+# --- RECRUITMENT STEPS ---
 REQUIRED_INFO = [
-    "Full Name",
-    "Email Address",
-    "Phone Number",
-    "Years of Experience",
-    "Desired Position",
-    "Current Location",
-    "Tech Stack (e.g., Python, React, SQL)"
+    "Full Name", "Email Address", "Phone Number", 
+    "Years of Experience", "Desired Position", "Current Location", "Tech Stack"
 ]
-
-SYSTEM_PROMPT = {
-    "role": "system",
-    "content": (
-        "You are 'TalentScout', a friendly technical recruiter. "
-        "Your goal is to screen candidates professionally. "
-        "Ask only one question at a time. Once the tech stack is provided, "
-        "generate 3-5 technical questions. If the user says 'exit' or 'bye', "
-        "end the chat gracefully."
-    )
-}
 
 # --- INITIALIZATION ---
 if "messages" not in st.session_state:
-    st.session_state.messages = [SYSTEM_PROMPT]
+    st.session_state.messages = []
     st.session_state.info_step = 0
+    st.session_state.tech_questions = [] # Stores the list of questions
+    st.session_state.tech_step = 0      # Tracks which question we are on
     st.session_state.collected_data = {}
-    st.session_state.messages.append({"role": "assistant", "content": "Welcome to TalentScout! I'm here to help with your application. To start, what is your **Full Name**?"})
+    
+    # First greeting
+    greeting = "Welcome to TalentScout! Let's start with your **Full Name**."
+    st.session_state.messages.append({"role": "assistant", "content": greeting})
 
-# --- UI DISPLAY ---
-st.set_page_config(page_title="TalentScout Assistant", page_icon="💼")
+# --- UI SETUP ---
+st.set_page_config(page_title="TalentScout Hiring Assistant", page_icon="💼")
 st.title("💼 TalentScout Hiring Assistant")
 
-for message in st.session_state.messages:
-    if message["role"] != "system":
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-# --- CHAT INPUT ---
-if prompt := st.chat_input("Enter your response here..."):
+# --- CHAT LOGIC ---
+if prompt := st.chat_input("Enter your response..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    st.chat_message("user").markdown(prompt)
 
-    # Check for exit
-    if any(stop in prompt.lower() for stop in ["exit", "quit", "bye"]):
-        farewell = "Thank you for your time! Our team will review your profile. Goodbye!"
-        st.chat_message("assistant").markdown(farewell)
-        st.stop()
-
-    # Generate Response
     with st.chat_message("assistant"):
-        # Information Gathering Phase
+        # PHASE 1: Information Gathering
         if st.session_state.info_step < len(REQUIRED_INFO):
-            current_field = REQUIRED_INFO[st.session_state.info_step]
-            st.session_state.collected_data[current_field] = prompt
+            field = REQUIRED_INFO[st.session_state.info_step]
+            st.session_state.collected_data[field] = prompt
             st.session_state.info_step += 1
             
             if st.session_state.info_step < len(REQUIRED_INFO):
-                next_field = REQUIRED_INFO[st.session_state.info_step]
-                response = f"Got it. Next, what is your **{next_field}**?"
+                next_f = REQUIRED_INFO[st.session_state.info_step]
+                response = f"Got it. What is your **{next_f}**?"
             else:
-                with st.spinner("Preparing your technical questions..."):
-                    tech_context = f"Candidate has {st.session_state.collected_data['Years of Experience']} years experience. Tech stack: {st.session_state.collected_data['Tech Stack (e.g., Python, React, SQL)']}. Generate 3-5 relevant technical questions."
-                    history = st.session_state.messages + [{"role": "system", "content": tech_context}]
-                    res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=history)
-                    response = res.choices[0].message.content
-        # Technical Interview Phase
+                # TRANSITION: Generate Tech Questions
+                with st.spinner("Generating technical questions based on your stack..."):
+                    stack = st.session_state.collected_data["Tech Stack"]
+                    sys_prompt = f"Generate exactly 5 technical interview questions for a candidate proficient in {stack}. Return only the questions separated by newlines, no intro text."
+                    res = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[{"role": "system", "content": sys_prompt}]
+                    )
+                    # Clean and split questions into a list
+                    q_text = res.choices[0].message.content
+                    st.session_state.tech_questions = [q.strip() for q in q_text.split('\n') if q.strip()][:5]
+                    response = f"Great! Now I have some technical questions for you.\n\n**Question 1:** {st.session_state.tech_questions[0]}"
+        
+        # PHASE 2: One-by-One Technical Questions
+        elif st.session_state.tech_step < len(st.session_state.tech_questions) - 1:
+            st.session_state.tech_step += 1
+            idx = st.session_state.tech_step
+            response = f"Thank you. **Question {idx+1}:** {st.session_state.tech_questions[idx]}"
+        
+        # PHASE 3: Conclusion
         else:
-            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=st.session_state.messages)
-            response = res.choices[0].message.content
-
+            response = "Thank you for completing the screening! Our team will review your answers and contact you soon. Goodbye!"
+            
         st.markdown(response)
         st.session_state.messages.append({"role": "assistant", "content": response})
