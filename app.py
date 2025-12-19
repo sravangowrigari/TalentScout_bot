@@ -22,20 +22,16 @@ def load_llm():
 llm = load_llm()
 
 # --------------------------------------------------
-# PROMPT (SIMPLE & RELIABLE)
+# PROMPT
 # --------------------------------------------------
 SYSTEM_PROMPT = """
 Generate 4 technical interview questions.
 
 Rules:
-- Questions must be technical
-- Scenario-based or problem-solving
+- Technical, scenario-based or problem-solving
 - Related to the given tech stack
-- No definitions
-- No explanations
-- No answers
-
-Return each question on a new line.
+- No definitions, no explanations, no answers
+- Return each question on a new line
 """
 
 # --------------------------------------------------
@@ -43,9 +39,14 @@ Return each question on a new line.
 # --------------------------------------------------
 if "step" not in st.session_state:
     st.session_state.step = 0
-
 if "candidate" not in st.session_state:
     st.session_state.candidate = {}
+if "q_index" not in st.session_state:
+    st.session_state.q_index = 0
+if "tech_questions" not in st.session_state:
+    st.session_state.tech_questions = []
+if "last_input" not in st.session_state:
+    st.session_state.last_input = None
 
 # --------------------------------------------------
 # UI
@@ -78,7 +79,8 @@ info_questions = [
 if st.session_state.step < len(info_questions):
     st.chat_message("assistant").write(info_questions[st.session_state.step])
 
-    if user_input:
+    if user_input and user_input != st.session_state.last_input:
+        st.session_state.last_input = user_input
         st.session_state.candidate[
             info_questions[st.session_state.step]
         ] = user_input
@@ -86,34 +88,23 @@ if st.session_state.step < len(info_questions):
         st.rerun()
 
 # --------------------------------------------------
-# MODEL QUESTION GENERATION (FINAL & FAIL-SAFE)
+# MODEL QUESTION GENERATION
 # --------------------------------------------------
 elif st.session_state.step == len(info_questions):
     tech_stack = st.session_state.candidate[info_questions[-1]]
 
     with st.spinner("Generating technical questions..."):
-        prompt = f"""
-{SYSTEM_PROMPT}
-
-Tech Stack: {tech_stack}
-"""
+        prompt = f"{SYSTEM_PROMPT}\nTech Stack: {tech_stack}"
         raw_output = llm(prompt)[0]["generated_text"]
 
-    # ✅ UNIVERSAL EXTRACTION (NO FAILURE POSSIBLE)
-    lines = raw_output.split("\n")
-
+    # Robust, tolerant extraction (no strict formatting assumptions)
+    lines = [l.strip() for l in raw_output.split("\n")]
     questions = []
-    for line in lines:
-        clean = line.strip()
+    for l in lines:
+        l = l.lstrip("0123456789.-•) ").strip()
+        if len(l) >= 25:
+            questions.append(l)
 
-        # Remove numbering/bullets
-        clean = clean.lstrip("0123456789.-•) ").strip()
-
-        # Keep meaningful lines
-        if len(clean) >= 25:
-            questions.append(clean)
-
-    # Absolute guarantee
     if not questions:
         questions = [raw_output.strip()]
 
@@ -123,16 +114,17 @@ Tech Stack: {tech_stack}
     st.rerun()
 
 # --------------------------------------------------
-# ASK QUESTIONS
+# ASK TECH QUESTIONS
 # --------------------------------------------------
 else:
-    i = st.session_state.q_index
     qs = st.session_state.tech_questions
+    i = st.session_state.q_index
 
     if i < len(qs):
         st.chat_message("assistant").write(qs[i])
 
-        if user_input:
+        if user_input and user_input != st.session_state.last_input:
+            st.session_state.last_input = user_input
             st.session_state.q_index += 1
             st.rerun()
     else:
