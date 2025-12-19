@@ -25,10 +25,21 @@ def load_llm():
 def load_sentiment():
     return pipeline("sentiment-analysis")
 
-st.info("⏳ Loading AI models (first load may take ~30 seconds)...")
+if "models_loaded" not in st.session_state:
+    loading_placeholder = st.empty()
+    loading_placeholder.info(
+        "⏳ Loading AI models (first load may take ~30 seconds)..."
+    )
 
-llm = load_llm()
-sentiment_analyzer = load_sentiment()
+    llm = load_llm()
+    sentiment_analyzer = load_sentiment()
+
+    loading_placeholder.empty()
+    st.session_state.models_loaded = True
+else:
+    llm = load_llm()
+    sentiment_analyzer = load_sentiment()
+
 
 # --------------------------------------------------
 # PROMPT (TUNED FOR SMALL LLMS)
