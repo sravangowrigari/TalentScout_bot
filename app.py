@@ -1,7 +1,6 @@
 import streamlit as st
 import uuid
 import os
-import time
 import requests
 from transformers import pipeline
 
@@ -19,7 +18,7 @@ if not HF_API_TOKEN:
 
 HF_API_URL = (
     "https://api-inference.huggingface.co/models/"
-    "mistralai/Mistral-7B-Instruct-v0.2"
+    "google/flan-t5-base"
 )
 
 HEADERS = {
@@ -28,7 +27,7 @@ HEADERS = {
 }
 
 # --------------------------------------------------
-# SENTIMENT (EXPLICIT MODEL)
+# SENTIMENT (OPTIONAL, EXPLICIT MODEL)
 # --------------------------------------------------
 @st.cache_resource
 def load_sentiment():
@@ -40,21 +39,15 @@ def load_sentiment():
 sentiment_analyzer = load_sentiment()
 
 # --------------------------------------------------
-# PROMPT (STRICT)
+# PROMPT (FLAN-T5 OPTIMIZED)
 # --------------------------------------------------
 SYSTEM_PROMPT = """
-You are a senior technical interviewer.
+Generate 3 to 5 advanced technical interview questions.
 
-Generate ONLY technical interview questions.
-
-MANDATORY FORMAT:
-- Generate 3 to 5 questions
+Rules:
 - One question per line
-- Each question must end with '?'
-- Output ONLY the questions
-
-CONTENT RULES:
-- Scenario-based or failure-based
+- Each must end with '?'
+- Scenario-based or failure-based only
 - Focus on scalability, performance, trade-offs, edge cases
 - No definitions
 - No explanations
@@ -109,52 +102,37 @@ if st.session_state.step < len(info_questions):
         st.rerun()
 
 # --------------------------------------------------
-# MODEL-ONLY QUESTION GENERATION (WITH RETRY)
+# MODEL-ONLY QUESTION GENERATION (FLAN-T5)
 # --------------------------------------------------
 elif st.session_state.step == len(info_questions):
     tech_stack = st.session_state.candidate[info_questions[-1]]
 
-    payload = {
-        "inputs": (
-            f"{SYSTEM_PROMPT}\n"
-            f"Tech Stack: {tech_stack}\n"
-            f"IMPORTANT: Follow the format strictly."
-        ),
-        "parameters": {
-            "max_new_tokens": 300,
-            "temperature": 0.4,
-            "return_full_text": False
+    with st.spinner("Generating technical questions..."):
+        payload = {
+            "inputs": f"{SYSTEM_PROMPT}\nTech Stack: {tech_stack}",
+            "parameters": {
+                "max_new_tokens": 200
+            }
         }
-    }
 
-    max_retries = 5
-    wait_seconds = 10
-    raw_text = None
-
-    with st.spinner("Warming up AI model and generating questions..."):
-        for attempt in range(max_retries):
-            response = requests.post(
-                HF_API_URL,
-                headers=HEADERS,
-                json=payload,
-                timeout=60
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, list) and "generated_text" in data[0]:
-                    raw_text = data[0]["generated_text"]
-                    if raw_text.strip():
-                        break
-
-            time.sleep(wait_seconds)
-
-    if not raw_text:
-        st.error(
-            "The AI model did not become ready in time. "
-            "Please try again in a minute."
+        response = requests.post(
+            HF_API_URL,
+            headers=HEADERS,
+            json=payload,
+            timeout=30
         )
+
+    if response.status_code != 200:
+        st.error("AI model request failed. Please try again.")
         st.stop()
+
+    data = response.json()
+
+    if not isinstance(data, list) or "generated_text" not in data[0]:
+        st.error("AI model returned invalid output.")
+        st.stop()
+
+    raw_text = data[0]["generated_text"]
 
     model_questions = [
         q.strip()
@@ -164,8 +142,8 @@ elif st.session_state.step == len(info_questions):
 
     if len(model_questions) < 3:
         st.error(
-            "The AI model responded, but did not generate valid interview questions. "
-            "Please refine the tech stack and try again."
+            "The AI model could not generate valid interview questions. "
+            "Please refine the tech stack."
         )
         st.stop()
 
