@@ -1,162 +1,171 @@
 import streamlit as st
 from transformers import pipeline
 
-# --------------------------------------------------
-# PAGE CONFIG
-# --------------------------------------------------
+# ==================================================
+# CONFIG
+# ==================================================
 st.set_page_config(page_title="TalentScout Hiring Assistant")
 
 EXIT_KEYWORDS = {"exit", "quit", "stop", "end", "bye"}
 
-# --------------------------------------------------
-# LOAD MODEL (BETTER QUALITY)
-# --------------------------------------------------
+# ==================================================
+# LOAD PRE-TRAINED LLM (LOCAL, STABLE)
+# ==================================================
 @st.cache_resource
 def load_llm():
     return pipeline(
         "text2text-generation",
-        model="google/flan-t5-large",
-        max_new_tokens=512,
-        do_sample=False,          # deterministic
-        num_beams=4               # forces multi-question output
+        model="google/flan-t5-base",
+        max_new_tokens=350,
+        temperature=0.3
     )
 
 llm = load_llm()
 
-# --------------------------------------------------
-# STRONG TECH-STACK AWARE PROMPT
-# --------------------------------------------------
-SYSTEM_PROMPT = """
-You are a senior technical interviewer.
+# ==================================================
+# PROMPTS (CORE OF ASSIGNMENT)
+# ==================================================
 
-TASK:
-Generate 5 advanced technical interview questions.
-
-STRICT REQUIREMENTS:
-- Each question MUST explicitly reference at least one item from the tech stack
-- Questions must be scenario-based or problem-solving
-- Focus on real-world issues: performance, scalability, failures, trade-offs
-- NO definitions
-- NO theoretical explanations
-- NO answers
-
-FORMAT (MANDATORY):
-Q1: <question>
-Q2: <question>
-Q3: <question>
-Q4: <question>
-Q5: <question>
+INFO_PROMPT = """
+You are TalentScout’s Hiring Assistant.
+Politely collect the required candidate information step by step.
+Do not ask technical questions yet.
 """
 
-# --------------------------------------------------
+QUESTION_PROMPT_TEMPLATE = """
+You are a senior technical interviewer.
+
+Generate {n} technical interview questions.
+
+Rules:
+- Questions must be based ONLY on the provided tech stack
+- Each question must clearly mention at least one technology from the stack
+- Scenario-based or problem-solving questions only
+- No definitions
+- No explanations
+- No answers
+- Each question on a new line
+
+Candidate Experience: {experience} years
+Tech Stack: {tech_stack}
+"""
+
+FALLBACK_MESSAGE = (
+    "I’m sorry, I didn’t fully understand that. "
+    "Please respond with the requested information so we can continue the screening."
+)
+
+# ==================================================
 # SESSION STATE
-# --------------------------------------------------
+# ==================================================
 if "step" not in st.session_state:
     st.session_state.step = 0
+
 if "candidate" not in st.session_state:
     st.session_state.candidate = {}
+
+if "questions" not in st.session_state:
+    st.session_state.questions = []
+
 if "q_index" not in st.session_state:
     st.session_state.q_index = 0
-if "tech_questions" not in st.session_state:
-    st.session_state.tech_questions = []
+
 if "last_input" not in st.session_state:
     st.session_state.last_input = None
 
-# --------------------------------------------------
+# ==================================================
 # UI
-# --------------------------------------------------
+# ==================================================
 st.title("🤖 TalentScout Hiring Assistant")
-st.write("Hello 👋 I’ll guide you through an initial technical screening.")
+st.write(
+    "Welcome to **TalentScout** 👋\n\n"
+    "I’ll help with an initial screening by collecting your details "
+    "and asking a few technical questions based on your tech stack."
+)
 
 user_input = st.chat_input("Type your response here...")
 
-# --------------------------------------------------
+# ==================================================
 # EXIT HANDLING
-# --------------------------------------------------
+# ==================================================
 if user_input and user_input.lower().strip() in EXIT_KEYWORDS:
     st.chat_message("assistant").write(
-        "Thank you for your time! Our recruitment team will contact you soon."
+        "Thank you for your time! 🙏 Our recruitment team will review your profile and contact you soon."
     )
     st.stop()
 
-# --------------------------------------------------
-# STEP-BY-STEP INFO COLLECTION
-# --------------------------------------------------
+# ==================================================
+# INFORMATION GATHERING FLOW
+# ==================================================
 info_questions = [
-    "What is your full name?",
-    "What is your email address?",
-    "How many years of experience do you have?",
-    "What position are you applying for?",
-    "Please list your tech stack (comma separated, e.g., Python, SQL, Docker)"
+    ("full_name", "What is your full name?"),
+    ("email", "What is your email address?"),
+    ("phone", "What is your phone number?"),
+    ("experience", "How many years of professional experience do you have?"),
+    ("position", "What position(s) are you applying for?"),
+    ("location", "What is your current location?"),
+    ("tech_stack", "Please list your tech stack (languages, frameworks, tools — comma separated)")
 ]
 
 if st.session_state.step < len(info_questions):
-    st.chat_message("assistant").write(info_questions[st.session_state.step])
+    key, question_text = info_questions[st.session_state.step]
+    st.chat_message("assistant").write(question_text)
 
     if user_input and user_input != st.session_state.last_input:
-        st.session_state.last_input = user_input
-        st.session_state.candidate[
-            info_questions[st.session_state.step]
-        ] = user_input
-        st.session_state.step += 1
+        st.session_state.last_input = user_input.strip()
+
+        # Basic fallback for empty / nonsense input
+        if not st.session_state.last_input:
+            st.chat_message("assistant").write(FALLBACK_MESSAGE)
+        else:
+            st.session_state.candidate[key] = st.session_state.last_input
+            st.session_state.step += 1
+
         st.rerun()
 
-# --------------------------------------------------
-# TECH-STACK-SPECIFIC QUESTION GENERATION
-# --------------------------------------------------
+# ==================================================
+# TECHNICAL QUESTION GENERATION
+# ==================================================
 elif st.session_state.step == len(info_questions):
-    tech_stack_raw = st.session_state.candidate[info_questions[-1]]
-    tech_stack = [t.strip() for t in tech_stack_raw.split(",") if t.strip()]
-    experience = st.session_state.candidate[info_questions[2]]
+    tech_stack = st.session_state.candidate["tech_stack"]
+    experience = st.session_state.candidate["experience"]
 
-    with st.spinner("Generating advanced, tech-specific questions..."):
-        prompt = f"""
-{SYSTEM_PROMPT}
+    with st.spinner("Generating technical questions based on your tech stack..."):
+        prompt = QUESTION_PROMPT_TEMPLATE.format(
+            n=5,
+            experience=experience,
+            tech_stack=tech_stack
+        )
+        raw_output = llm(prompt)[0]["generated_text"]
 
-Candidate Experience: {experience} years
-Tech Stack: {", ".join(tech_stack)}
-
-IMPORTANT:
-- Each question must clearly mention a technology from the stack
-- Use real engineering scenarios
-"""
-        output = llm(prompt)[0]["generated_text"]
-
-    # -------------------------------
-    # ROBUST EXTRACTION (Q1–Q5)
-    # -------------------------------
+    # Clean and normalize questions
     questions = []
-    for line in output.split("\n"):
-        line = line.strip()
-        if line.startswith("Q"):
-            clean = line.split(":", 1)[-1].strip()
-            if len(clean) > 40:
-                questions.append(clean)
-
-    # Safety net: keep only meaningful questions
-    questions = questions[:5]
+    for line in raw_output.split("\n"):
+        clean = line.strip().lstrip("0123456789.-•) ").strip()
+        if len(clean) > 30:
+            questions.append(clean)
 
     if len(questions) < 3:
-        st.error(
-            "The AI response was not detailed enough. "
-            "Please provide a clearer tech stack (e.g., Python, SQL, Docker, AWS)."
+        st.chat_message("assistant").write(
+            "I had trouble generating clear technical questions. "
+            "Please ensure your tech stack is specific (e.g., Python, Django, PostgreSQL)."
         )
         st.stop()
 
-    st.session_state.tech_questions = questions
+    st.session_state.questions = questions[:5]
     st.session_state.q_index = 0
     st.session_state.step += 1
     st.rerun()
 
-# --------------------------------------------------
-# ASK TECH QUESTIONS
-# --------------------------------------------------
+# ==================================================
+# ASK TECHNICAL QUESTIONS
+# ==================================================
 else:
-    qs = st.session_state.tech_questions
     i = st.session_state.q_index
+    questions = st.session_state.questions
 
-    if i < len(qs):
-        st.chat_message("assistant").write(qs[i])
+    if i < len(questions):
+        st.chat_message("assistant").write(questions[i])
 
         if user_input and user_input != st.session_state.last_input:
             st.session_state.last_input = user_input
@@ -164,6 +173,6 @@ else:
             st.rerun()
     else:
         st.chat_message("assistant").write(
-            "Thank you for completing the screening! "
-            "Our recruitment team will review your responses."
+            "✅ Thank you for completing the initial screening!\n\n"
+            "Our recruitment team will review your responses and get back to you with next steps."
         )
